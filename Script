@@ -1,0 +1,528 @@
+
+
+
+
+Sub CreateClaudeGeneratedResponse()
+    On Error GoTo ErrorHandler
+    
+    ' References needed:
+    ' Microsoft Outlook Object Library
+    ' Microsoft Scripting Runtime
+    ' Microsoft WinHTTP Services
+    
+    Dim objApp As Outlook.Application
+    Dim objSelection As Outlook.Selection
+    Dim objMail As Outlook.MailItem
+    Dim objResponse As Outlook.MailItem
+    Dim strEmailBody As String
+    Dim strSender As String
+    Dim strSubject As String
+    Dim strResponseText As String
+    Dim AlGoal1 As String
+    Dim AlGoal2 As String
+    Dim AlGoal3 As String
+    AlGoal1 = InputBox("First custom idea in email?")
+    AlGoal2 = InputBox("Second custom idea in email?")
+    AlGoal3 = InputBox("Third custom idea in email?")
+    ' API setup variables
+    Dim strApiKey As String
+    Dim strModel As String
+    Dim strEndpoint As String
+    Dim objHTTP As Object
+    Dim strJsonData As String
+    Dim strJsonResponse As String
+    
+    ' Initialize API settings - REPLACE WITH YOUR ACTUAL API KEY
+    strApiKey = "INSERT API KEY HERE"
+    strModel = "claude-3-7-sonnet-20250219"  ' Use the latest model or change as needed
+    strEndpoint = "https://api.anthropic.com/v1/messages"
+    
+    ' Get the selected email
+    Set objApp = Outlook.Application
+    Set objSelection = objApp.ActiveExplorer.Selection
+    
+    ' Check if email is selected
+    If objSelection.Count = 0 Then
+        MsgBox "Please select an email first.", vbExclamation, "No Email Selected"
+        Exit Sub
+    End If
+    
+    ' Check if selected item is an email
+    If TypeName(objSelection.Item(1)) <> "MailItem" Then
+        MsgBox "The selected item is not an email message.", vbExclamation, "Invalid Selection"
+        Exit Sub
+    End If
+    
+    ' Get email details
+    Set objMail = objSelection.Item(1)
+    strEmailBody = objMail.Body
+    strSender = objMail.SenderName
+    strSubject = objMail.Subject
+    
+    
+    
+    ' Create HTTP request object
+    Set objHTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
+    
+    ' Construct the system prompt and user message
+    Dim strSystemPrompt As String
+    Dim strUserMessage As String
+    
+    strSystemPrompt = "You are an email assistant. Draft professional, helpful responses to emails."
+    
+    strUserMessage = "I received this email from " & strSender & " with subject '" & strSubject & "'. " & _
+                     "Please write a professional response to this email." & vbCrLf & vbCrLf & _
+                     "Here is the email body:" & vbCrLf & _
+                     "----------" & vbCrLf & _
+                     strEmailBody & vbCrLf & _
+                     "----------" & vbCrLf & _
+                     "Please draft an email in the style of ME. My style has these attributes: " & vbCrLf & _
+                     "Sentence 1 describing your style " & vbCrLf & _
+                     "Sentence 2 describing your style " & vbCrLf & _
+                     "Sentence 3 describing your style " & vbCrLf & _
+                     "Brief pleasantries - Opens with short greetings before business matters" & vbCrLf & _
+                     "Straightforward explanations - Provides clear context without excessive detail" & vbCrLf & _
+                     "I will now give you three additional prompts to customize your email:" & vbCrLf & _
+                     AlGoal1 & vbCrLf & _
+                    AlGoal2 & vbCrLf & _
+                    AlGoal3
+
+
+                     
+
+                     
+    ' Construct JSON payload for the API request
+    strJsonData = "{" & _
+        """model"": """ & strModel & """," & _
+        """system"": """ & EscapeJSON(strSystemPrompt) & """," & _
+        """messages"": [" & _
+            "{""role"": ""user"", ""content"": """ & EscapeJSON(strUserMessage) & """}" & _
+        "]," & _
+        """max_tokens"": 1024" & _
+    "}"
+    
+    ' Log the request for debugging
+    Debug.Print "API Request: " & strJsonData
+    
+    ' Send the request to Claude API
+    objHTTP.Open "POST", strEndpoint, False
+    objHTTP.SetRequestHeader "Content-Type", "application/json"
+    objHTTP.SetRequestHeader "x-api-key", strApiKey
+    objHTTP.SetRequestHeader "anthropic-version", "2023-06-01"
+    ' Add API Beta header if needed
+    ' objHTTP.SetRequestHeader "anthropic-beta", "messages-2023-12-15"
+    objHTTP.Send strJsonData
+    
+    ' Process the response
+    strJsonResponse = objHTTP.ResponseText
+    
+    ' Check HTTP status code
+    Debug.Print "HTTP Status: " & objHTTP.Status
+    
+    ' Log the response for debugging
+    Debug.Print "Raw API Response: " & Left(strJsonResponse, 500) & "..."
+    
+    ' Extract the generated text from the response
+    strResponseText = ExtractContentFromClaudeResponse(strJsonResponse)
+    
+    If strResponseText = "" Then
+        strResponseText = "Error: Could not parse API response. Please check the Immediate Window (Ctrl+G) for details."
+        
+        ' Log more details about the error
+        Debug.Print "Failed to extract content from response."
+        Debug.Print "JSON response length: " & Len(strJsonResponse)
+        Debug.Print "First 500 chars: " & Left(strJsonResponse, 500)
+    End If
+    
+    ' Create a reply to the original email
+    Set objResponse = objMail.Reply
+    
+    ' Insert the AI-generated text at the beginning of the email body
+    ' For HTML formatted emails
+    objResponse.HTMLBody = "<p>" & Replace(strResponseText, vbCrLf, "<br>") & "</p><p><br></p>" & objResponse.HTMLBody
+    
+    ' Display the draft reply
+    objResponse.Display
+    
+    ' Clean up
+    Set objResponse = Nothing
+    Set objMail = Nothing
+    Set objSelection = Nothing
+    Set objApp = Nothing
+    Set objHTTP = Nothing
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "An error occurred: " & Err.Description, vbCritical, "Error"
+    Resume CleanupAndExit
+    
+CleanupAndExit:
+    Set objResponse = Nothing
+    Set objMail = Nothing
+    Set objSelection = Nothing
+    Set objApp = Nothing
+    Set objHTTP = Nothing
+End Sub
+
+' Helper function to escape special characters in JSON
+Function EscapeJSON(ByVal strText As String) As String
+    Dim strEscaped As String
+    
+    strEscaped = strText
+    strEscaped = Replace(strEscaped, "\", "\\")
+    strEscaped = Replace(strEscaped, """", "\""")
+    strEscaped = Replace(strEscaped, vbCr, "\r")
+    strEscaped = Replace(strEscaped, vbLf, "\n")
+    strEscaped = Replace(strEscaped, vbTab, "\t")
+    
+    EscapeJSON = strEscaped
+End Function
+
+Function UnescapeJSON(ByVal jsonStr As String) As String
+    ' Handle JSON string escape sequences
+    Dim resultStr As String
+    resultStr = jsonStr
+    
+    ' Handle escaped characters
+    resultStr = Replace(resultStr, "\""", """")
+    resultStr = Replace(resultStr, "\\", "\")
+    resultStr = Replace(resultStr, "\/", "/")
+    resultStr = Replace(resultStr, "\b", Chr(8))
+    resultStr = Replace(resultStr, "\f", Chr(12))
+    resultStr = Replace(resultStr, "\n", vbLf)
+    resultStr = Replace(resultStr, "\r", vbCr)
+    resultStr = Replace(resultStr, "\t", vbTab)
+    
+    ' Handle unicode escapes
+    Dim regEx As Object
+    Set regEx = CreateObject("VBScript.RegExp")
+    
+    regEx.Global = True
+    regEx.Pattern = "\\u([0-9a-fA-F]{4})"
+    
+    Dim matches As Object
+    Set matches = regEx.Execute(resultStr)
+    
+    Dim i As Long
+    Dim hexValue As String
+    Dim unicodeChar As String
+    
+    ' Process each match in reverse order to avoid position shifts
+    For i = matches.Count - 1 To 0 Step -1
+        hexValue = matches(i).SubMatches(0)
+        unicodeChar = ChrW(CLng("&H" & hexValue))
+        resultStr = Left(resultStr, matches(i).FirstIndex) & unicodeChar & _
+                    Mid(resultStr, matches(i).FirstIndex + matches(i).Length + 1)
+    Next i
+    
+    UnescapeJSON = resultStr
+End Function
+
+' Helper function to extract content from Claude API response
+Function ExtractContentFromClaudeResponse(jsonString As String) As String
+    ' Add debug output to see the actual response
+    Debug.Print "API Response: " & jsonString
+    
+    ' Claude's API response format is different - it has 'content' in a nested structure
+    Dim contentStart As Long
+    Dim contentEnd As Long
+    Dim content As String
+    
+    ' The actual structure in Claude API response is typically:
+    ' {"content":[{"type":"text","text":"The response text here"}]}
+    contentStart = InStr(jsonString, """text"":""")
+    
+    If contentStart > 0 Then
+        contentStart = contentStart + 8  ' Length of """text"":"""
+        
+        ' Find the closing quote, accounting for escaped quotes in the content
+        Dim closeQuotePos As Long
+        Dim searchPos As Long
+        Dim foundEnd As Boolean
+        
+        searchPos = contentStart
+        foundEnd = False
+        
+        Do While Not foundEnd
+            closeQuotePos = InStr(searchPos, jsonString, """")
+            
+            If closeQuotePos = 0 Then
+                ' No closing quote found
+                foundEnd = True
+            ElseIf Mid(jsonString, closeQuotePos - 1, 1) = "\" Then
+                ' This is an escaped quote, not the end
+                searchPos = closeQuotePos + 1
+            Else
+                ' This is the real end
+                contentEnd = closeQuotePos
+                foundEnd = True
+            End If
+        Loop
+        
+        If contentEnd > contentStart Then
+            ' Extract the content
+            content = Mid(jsonString, contentStart, contentEnd - contentStart)
+            
+            ' Replace escaped characters
+            content = Replace(content, "\""", """")
+            content = Replace(content, "\\", "\")
+            content = Replace(content, "\r", vbCr)
+            content = Replace(content, "\n", vbLf)
+            content = Replace(content, "\t", vbTab)
+        End If
+    End If
+    
+    ExtractContentFromClaudeResponse = content
+End Function
+
+Sub CreateOpenAIGeneratedResponse()
+    On Error GoTo ErrorHandler
+    
+    ' References needed:
+    ' Microsoft Outlook Object Library
+    ' Microsoft Scripting Runtime
+    ' Microsoft WinHTTP Services
+    
+    Dim objApp As Outlook.Application
+    Dim objSelection As Outlook.Selection
+    Dim objMail As Outlook.MailItem
+    Dim objResponse As Outlook.MailItem
+    Dim strEmailBody As String
+    Dim strSender As String
+    Dim strSubject As String
+    Dim strResponseText As String
+    Dim AlGoal1 As String
+    Dim AlGoal2 As String
+    Dim AlGoal3 As String
+    AlGoal1 = InputBox("First custom idea in email?")
+    AlGoal2 = InputBox("Second custom idea in email?")
+    AlGoal3 = InputBox("Third custom idea in email?")
+    ' API setup variables
+    Dim strApiKey As String
+    Dim strModel As String
+    Dim strEndpoint As String
+    Dim objHTTP As Object
+    Dim strJsonData As String
+    Dim strJsonResponse As String
+    
+    ' Initialize API settings - REPLACE WITH YOUR ACTUAL API KEY
+    strApiKey = "INSERT API KEY HERE"
+
+    strModel = "gpt-4o"  ' Or another model like gpt-3.5-turbo
+    strEndpoint = "https://api.openai.com/v1/chat/completions"
+    
+    ' Get the selected email
+    Set objApp = Outlook.Application
+    Set objSelection = objApp.ActiveExplorer.Selection
+    
+    ' Check if email is selected
+    If objSelection.Count = 0 Then
+        MsgBox "Please select an email first.", vbExclamation, "No Email Selected"
+        Exit Sub
+    End If
+    
+    ' Check if selected item is an email
+    If TypeName(objSelection.Item(1)) <> "MailItem" Then
+        MsgBox "The selected item is not an email message.", vbExclamation, "Invalid Selection"
+        Exit Sub
+    End If
+    
+    ' Get email details
+    Set objMail = objSelection.Item(1)
+    strEmailBody = objMail.Body
+    strSender = objMail.SenderName
+    strSubject = objMail.Subject
+    
+    ' Create HTTP request object
+    Set objHTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
+    
+    ' Construct the system prompt and user message
+    Dim strUserMessage As String
+    
+    strSystemPrompt = "You are an email assistant. Draft professional, helpful responses to emails."
+    
+    strUserMessage = "I received this email from " & strSender & " with subject '" & strSubject & "'. " & _
+                   "Please write a professional response to this email." & vbCrLf & vbCrLf & _
+                     "Here is the email body:" & vbCrLf & _
+                     "----------" & vbCrLf & _
+                     strEmailBody & vbCrLf & _
+                     "----------" & vbCrLf & _
+                     "Please draft an email in the style of ME. My style has these attributes: " & vbCrLf & _
+                     "Sentence 1 describing your style " & vbCrLf & _
+                     "Sentence 2 describing your style " & vbCrLf & _
+                     "Sentence 3 describing your style " & vbCrLf & _
+                     "Brief pleasantries - Opens with short greetings before business matters" & vbCrLf & _
+                     "Straightforward explanations - Provides clear context without excessive detail" & vbCrLf & _
+                     "I will now give you three additional prompts to customize your email:" & vbCrLf & _
+                     AlGoal1 & vbCrLf & _
+                    AlGoal2 & vbCrLf & _
+                    AlGoal3
+                     
+    ' Construct JSON payload for the API request
+    strJsonData = "{" & _
+        """model"": """ & strModel & """," & _
+        """messages"": [" & _
+            "{""role"": ""system"", ""content"": ""You are an email assistant. Draft professional, helpful responses to emails.""}," & _
+            "{""role"": ""user"", ""content"": """ & EscapeJSON(strUserMessage) & """}" & _
+        "]," & _
+        """max_tokens"": 1024," & _
+        """temperature"": 0.7" & _
+    "}"
+    
+    ' Send the request to OpenAI API
+    objHTTP.Open "POST", strEndpoint, False
+    objHTTP.SetRequestHeader "Content-Type", "application/json"
+    objHTTP.SetRequestHeader "Authorization", "Bearer " & strApiKey
+    objHTTP.Send strJsonData
+    
+    ' Process the response
+    strJsonResponse = objHTTP.ResponseText
+    
+    ' For debugging - uncomment to see the actual response
+    ' MsgBox Left(strJsonResponse, 1000), vbInformation, "API Response (First 1000 chars)"
+    
+    ' Extract the generated text from the improved response parser
+    strResponseText = SimpleJSONExtract(strJsonResponse)
+    
+    If strResponseText = "" Then
+        MsgBox "API Response: " & Left(strJsonResponse, 500), vbInformation, "Raw API Response"
+        strResponseText = "Error: Could not parse API response."
+    End If
+    
+    ' Create a reply to the original email
+    Set objResponse = objMail.Reply
+    
+    ' Insert the AI-generated text at the beginning of the email body
+    ' For HTML formatted emails
+    objResponse.HTMLBody = "<p>" & Replace(strResponseText, vbCrLf, "<br>") & "</p><p><br></p>" & objResponse.HTMLBody
+    
+    ' Display the draft reply
+    objResponse.Display
+    
+    ' Clean up
+    Set objResponse = Nothing
+    Set objMail = Nothing
+    Set objSelection = Nothing
+    Set objApp = Nothing
+    Set objHTTP = Nothing
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "An error occurred: " & Err.Description & vbCrLf & "Error Number: " & Err.Number, vbCritical, "Error"
+    Resume CleanupAndExit
+    
+CleanupAndExit:
+    Set objResponse = Nothing
+    Set objMail = Nothing
+    Set objSelection = Nothing
+    Set objApp = Nothing
+    Set objHTTP = Nothing
+End Sub
+
+Function ExtractOpenAIContent(jsonStr As String) As String
+    On Error GoTo ErrorHandler
+    
+    ' This function is specifically designed to parse the exact response format shown in your screenshot
+    Dim contentStart As Long
+    Dim content As String
+    
+    ' Looking for "content": pattern followed by the actual content
+    contentStart = InStr(jsonStr, """content"":")
+    
+    If contentStart > 0 Then
+        ' Move past the "content": part (including the colon and quote)
+        contentStart = contentStart + 11
+        
+        ' The content is now everything from here until the end of the message structure
+        ' Checking if the content starts with a quote
+        If Mid(jsonStr, contentStart, 1) = """" Then
+            ' Extract everything between the quotes
+            Dim quotePos As Long
+            Dim startPos As Long
+            startPos = contentStart + 1
+            
+            ' Find the closing quote (that's not escaped)
+            Dim i As Long
+            Dim insideQuote As Boolean
+            insideQuote = True
+            
+            ' Extract the content - we'll build it character by character
+            content = ""
+            For i = startPos To Len(jsonStr)
+                Dim currentChar As String
+                currentChar = Mid(jsonStr, i, 1)
+                
+                ' If we hit a quote that's not escaped, we're done
+                If currentChar = """" And Mid(jsonStr, i - 1, 1) <> "\" Then
+                    Exit For
+                End If
+                
+                ' Otherwise, add this character to our content
+                content = content & currentChar
+            Next i
+            
+            ' Now unescape the content
+            content = Replace(content, "\n", vbNewLine)
+            content = Replace(content, "\r", vbCr)
+            content = Replace(content, "\\", "\")
+            content = Replace(content, "\""", """")
+            content = Replace(content, "\/", "/")
+        End If
+    End If
+    
+    ExtractOpenAIContent = content
+    Exit Function
+    
+ErrorHandler:
+    ' For debugging
+    MsgBox "Error in ExtractOpenAIContent: " & Err.Description, vbExclamation
+    ExtractOpenAIContent = ""
+End Function
+
+Function SimpleJSONExtract(jsonStr As String) As String
+    ' Extract just the content field from the response
+    Dim contentField As String
+    contentField = """content"":"
+    
+    Dim startPos As Long
+    startPos = InStr(jsonStr, contentField)
+    
+    If startPos > 0 Then
+        ' Move past the field name and quote
+        startPos = startPos + Len(contentField) + 1
+        
+        ' Find the closing quote (that isn't escaped)
+        Dim endPos As Long
+        endPos = startPos
+        Dim foundEnd As Boolean
+        foundEnd = False
+        
+        Do While Not foundEnd And endPos < Len(jsonStr)
+            endPos = InStr(endPos + 1, jsonStr, """")
+            
+            If endPos > 0 Then
+                ' Check if the quote is escaped
+                If Mid(jsonStr, endPos - 1, 1) <> "\" Then
+                    foundEnd = True
+                End If
+            Else
+                Exit Do
+            End If
+        Loop
+        
+        If foundEnd Then
+            Dim content As String
+            content = Mid(jsonStr, startPos, endPos - startPos)
+            
+            ' Unescape the JSON string
+            content = Replace(content, "\""", """")
+            content = Replace(content, "\\", "\")
+            content = Replace(content, "\n", vbNewLine)
+            content = Replace(content, "\r", vbCr)
+            
+            SimpleJSONExtract = content
+        End If
+    End If
+End Function
