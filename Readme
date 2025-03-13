@@ -1,0 +1,3 @@
+These are macros and helper functions in VBA for use in Microsoft Outlook. You can hang these macros on the ribbon. 
+Highlight an email, and Claude or GPT will draft a response to it. 
+THere is space in the code to prompt your general style, and specific ideas you want to include
